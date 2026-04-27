@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>FTAP — Disaster Response Site Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600;700&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root {
+  --navy:    #0D1B2A;
+  --navy2:   #162236;
+  --navy3:   #1E3050;
+  --blue:    #1A6FA8;
+  --cyan:    #00C2E0;
+  --panel:   rgba(13,27,42,0.97);
+  --border:  rgba(0,194,224,0.18);
+  --text:    #E8F0F8;
+  --muted:   #8BA4BC;
+  --L1:      #27AE60;
+  --L2:      #F39C12;
+  --L3:      #E74C3C;
+  --tag-bg:  rgba(0,194,224,0.12);
+  --radius:  6px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; font-family: 'IBM Plex Sans', sans-serif; background: var(--navy); color: var(--text); overflow: hidden; }
+
+/* ── MAP ── */
+#map { position: absolute; inset: 0; z-index: 0; }
+.leaflet-tile-pane { filter: brightness(0.45) saturate(0.6) hue-rotate(185deg); }
+.leaflet-control-zoom a { background: var(--navy2)!important; color: var(--cyan)!important; border-color: var(--border)!important; }
+
+/* ── TOP BAR ── */
+#topbar {
+  position: absolute; top: 0; left: 0; right: 0; height: 54px; z-index: 1000;
+  background: var(--panel); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 20px; gap: 20px;
+}
+#topbar .logo {
+  font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600;
+  color: var(--cyan); letter-spacing: 0.08em; white-space: nowrap;
+}
+#topbar .logo span { color: var(--muted); font-weight: 400; }
+.topbar-sep { width: 1px; height: 28px; background: var(--border); flex-shrink: 0; }
+#disaster-tabs { display: flex; gap: 6px; flex-shrink: 0; }
+.dtab {
+  padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;
+  letter-spacing: 0.05em; cursor: pointer; border: 1px solid var(--border);
+  background: transparent; color: var(--muted); transition: all 0.2s;
+}
+.dtab:hover { color: var(--text); border-color: var(--cyan); }
+.dtab.active { color: var(--navy); border-color: transparent; }
+.dtab.earthquake.active { background: #E67E22; }
+.dtab.typhoon.active    { background: #2980B9; }
+.dtab.flood.active      { background: #16A085; }
+.dtab.fuel.active       { background: #8E44AD; }
+.dtab.all.active        { background: var(--cyan); color: var(--navy); }
+
+#stats-bar { display: flex; gap: 18px; margin-left: auto; flex-shrink: 0; }
+.stat { display: flex; flex-direction: column; align-items: center; }
+.stat .val { font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 600; color: var(--cyan); line-height: 1; }
+.stat .lbl { font-size: 9px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
+
+/* ── LEFT PANEL ── */
+#left-panel {
+  position: absolute; top: 54px; left: 0; bottom: 0; width: 290px; z-index: 900;
+  background: var(--panel); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+#left-panel h3 { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); padding: 14px 16px 8px; }
+
+/* Level filter */
+#level-filter { display: flex; gap: 6px; padding: 0 16px 12px; }
+.lvl-btn {
+  flex: 1; padding: 7px 0; border-radius: var(--radius); border: 1px solid var(--border);
+  font-size: 11px; font-weight: 700; cursor: pointer; letter-spacing: 0.04em;
+  background: transparent; transition: all 0.2s; color: var(--muted);
+}
+.lvl-btn.active-L1 { background: var(--L1); color: #fff; border-color: var(--L1); }
+.lvl-btn.active-L2 { background: var(--L2); color: #fff; border-color: var(--L2); }
+.lvl-btn.active-L3 { background: var(--L3); color: #fff; border-color: var(--L3); }
+.lvl-btn:hover { color: var(--text); }
+
+/* Risk factor toggles */
+#risk-section { padding: 0 16px 12px; border-bottom: 1px solid var(--border); }
+#risk-section label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 8px; }
+#risk-factors { display: flex; flex-wrap: wrap; gap: 6px; }
+.rfactor {
+  padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;
+  cursor: pointer; border: 1px solid var(--border); color: var(--muted);
+  background: transparent; transition: all 0.15s;
+}
+.rfactor.active { background: rgba(0,194,224,0.2); color: var(--cyan); border-color: var(--cyan); }
+
+/* Site list */
+#site-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+#site-list::-webkit-scrollbar { width: 4px; }
+#site-list::-webkit-scrollbar-track { background: transparent; }
+#site-list::-webkit-scrollbar-thumb { background: var(--navy3); border-radius: 2px; }
+.site-item {
+  padding: 10px 16px; cursor: pointer; border-left: 3px solid transparent;
+  transition: all 0.15s; display: flex; align-items: center; gap: 10px;
+}
+.site-item:hover { background: rgba(0,194,224,0.07); }
+.site-item.selected { background: rgba(0,194,224,0.1); border-left-color: var(--cyan); }
+.site-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.site-info { flex: 1; min-width: 0; }
+.site-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.site-sub  { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.site-risk-badge {
+  font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px;
+  flex-shrink: 0; letter-spacing: 0.04em;
+}
+
+/* ── SITE DETAIL PANEL ── */
+#detail-panel {
+  position: absolute; top: 54px; right: 0; bottom: 0; width: 340px; z-index: 900;
+  background: var(--panel); border-left: 1px solid var(--border);
+  transform: translateX(100%); transition: transform 0.28s cubic-bezier(0.4,0,0.2,1);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+#detail-panel.open { transform: translateX(0); }
+#detail-close {
+  position: absolute; top: 12px; right: 14px; width: 28px; height: 28px;
+  background: var(--navy3); border: 1px solid var(--border); border-radius: 50%;
+  color: var(--muted); font-size: 14px; cursor: pointer; display: flex;
+  align-items: center; justify-content: center; z-index: 10;
+}
+#detail-close:hover { color: var(--text); background: var(--navy2); }
+#detail-content { flex: 1; overflow-y: auto; padding: 18px; }
+#detail-content::-webkit-scrollbar { width: 4px; }
+#detail-content::-webkit-scrollbar-thumb { background: var(--navy3); border-radius: 2px; }
+
+.detail-header-name { font-size: 18px; font-weight: 700; color: var(--cyan); line-height: 1.2; margin-bottom: 4px; padding-right: 36px; }
+.detail-header-sub  { font-size: 11px; color: var(--muted); margin-bottom: 14px; font-family: 'IBM Plex Mono', monospace; }
+.risk-banner {
+  border-radius: var(--radius); padding: 10px 14px; margin-bottom: 14px;
+  display: flex; align-items: center; gap: 10px;
+}
+.risk-banner .risk-level { font-size: 22px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; }
+.risk-banner .risk-label { font-size: 11px; line-height: 1.4; }
+.risk-banner .risk-label strong { display: block; font-size: 13px; }
+
+.detail-section { margin-bottom: 16px; }
+.detail-section h4 { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid var(--border); }
+.detail-row { display: flex; justify-content: space-between; align-items: flex-start; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.04); gap: 12px; }
+.detail-row:last-child { border-bottom: none; }
+.detail-row .dk { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+.detail-row .dv { font-size: 11px; font-weight: 600; text-align: right; }
+.detail-row .dv.mono { font-family: 'IBM Plex Mono', monospace; font-size: 10px; }
+
+.risk-pills { display: flex; flex-wrap: wrap; gap: 5px; padding-top: 4px; }
+.risk-pill {
+  padding: 3px 9px; border-radius: 20px; font-size: 10px; font-weight: 600;
+  border: 1px solid;
+}
+.risk-pill.high  { color: #E74C3C; border-color: rgba(231,76,60,0.4); background: rgba(231,76,60,0.1); }
+.risk-pill.med   { color: #F39C12; border-color: rgba(243,156,18,0.4); background: rgba(243,156,18,0.1); }
+.risk-pill.low   { color: #27AE60; border-color: rgba(39,174,96,0.4); background: rgba(39,174,96,0.1); }
+
+.action-btn {
+  display: block; width: 100%; padding: 10px; border-radius: var(--radius);
+  font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-align: center;
+  cursor: pointer; border: none; margin-bottom: 7px; transition: all 0.15s;
+}
+.action-btn.primary { background: var(--cyan); color: var(--navy); }
+.action-btn.primary:hover { background: #00ddf8; }
+.action-btn.secondary { background: var(--navy3); color: var(--text); border: 1px solid var(--border); }
+.action-btn.secondary:hover { border-color: var(--cyan); color: var(--cyan); }
+
+/* ── LEGEND ── */
+#legend {
+  position: absolute; bottom: 20px; left: 300px; z-index: 900;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px 16px; font-size: 11px;
+}
+#legend h5 { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.leg-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.leg-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.leg-ring { width: 14px; height: 14px; border-radius: 50%; border: 2px solid; flex-shrink: 0; background: transparent; }
+
+/* ── DISASTER ALERT BANNER ── */
+#alert-banner {
+  position: absolute; top: 60px; left: 50%; transform: translateX(-50%);
+  z-index: 1100; background: rgba(231,76,60,0.95); border: 1px solid rgba(255,255,255,0.2);
+  border-radius: var(--radius); padding: 10px 20px; font-size: 12px; font-weight: 700;
+  letter-spacing: 0.05em; display: none; align-items: center; gap: 10px;
+  box-shadow: 0 4px 24px rgba(231,76,60,0.4);
+}
+#alert-banner.show { display: flex; }
+
+/* map markers override */
+.custom-marker { border: none; background: transparent; }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<!-- TOP BAR -->
+<div id="topbar">
+  <div class="logo">FTAP <span>// DISASTER RESPONSE MAP</span></div>
+  <div class="topbar-sep"></div>
+  <div id="disaster-tabs">
+    <button class="dtab all active"    onclick="setDisaster('all')">ALL</button>
+    <button class="dtab earthquake"    onclick="setDisaster('earthquake')">🌍 EARTHQUAKE</button>
+    <button class="dtab typhoon"       onclick="setDisaster('typhoon')">🌀 TYPHOON</button>
+    <button class="dtab flood"         onclick="setDisaster('flood')">🌊 FLOOD</button>
+    <button class="dtab fuel"          onclick="setDisaster('fuel')">⛽ FUEL CRISIS</button>
+  </div>
+  <div class="topbar-sep"></div>
+  <div id="stats-bar">
+    <div class="stat"><div class="val" id="stat-total">0</div><div class="lbl">Sites</div></div>
+    <div class="stat"><div class="val" id="stat-L3" style="color:#E74C3C">0</div><div class="lbl">Level 3</div></div>
+    <div class="stat"><div class="val" id="stat-L2" style="color:#F39C12">0</div><div class="lbl">Level 2</div></div>
+    <div class="stat"><div class="val" id="stat-L1" style="color:#27AE60">0</div><div class="lbl">Level 1</div></div>
+  </div>
+</div>
+
+<!-- LEFT PANEL -->
+<div id="left-panel">
+  <h3>Disaster Level Filter</h3>
+  <div id="level-filter">
+    <button class="lvl-btn" id="btn-L1" onclick="toggleLevel('L1')">L1 LOW</button>
+    <button class="lvl-btn" id="btn-L2" onclick="toggleLevel('L2')">L2 MED</button>
+    <button class="lvl-btn" id="btn-L3" onclick="toggleLevel('L3')">L3 HIGH</button>
+  </div>
+  <div id="risk-section">
+    <label>Risk Factor Filters</label>
+    <div id="risk-factors">
+      <button class="rfactor" onclick="toggleRisk('guyed')">Guyed Tower</button>
+      <button class="rfactor" onclick="toggleRisk('rooftop')">Rooftop</button>
+      <button class="rfactor" onclick="toggleRisk('not_retrofitted')">Not Retrofitted</button>
+      <button class="rfactor" onclick="toggleRisk('island')">Island Site</button>
+      <button class="rfactor" onclick="toggleRisk('low_fuel')">Low Fuel</button>
+      <button class="rfactor" onclick="toggleRisk('flood_zone')">Flood Zone</button>
+      <button class="rfactor" onclick="toggleRisk('no_backup_vendor')">No Backup Vendor</button>
+    </div>
+  </div>
+  <h3>Sites <span id="site-count" style="color:var(--cyan)"></span></h3>
+  <div id="site-list"></div>
+</div>
+
+<!-- SITE DETAIL PANEL -->
+<div id="detail-panel">
+  <button id="detail-close" onclick="closeDetail()">✕</button>
+  <div id="detail-content"></div>
+</div>
+
+<!-- LEGEND -->
+<div id="legend">
+  <h5>Risk Level</h5>
+  <div class="leg-row"><div class="leg-dot" style="background:#E74C3C"></div> Level 3 — High Risk</div>
+  <div class="leg-row"><div class="leg-dot" style="background:#F39C12"></div> Level 2 — Moderate</div>
+  <div class="leg-row"><div class="leg-dot" style="background:#27AE60"></div> Level 1 — Low Risk</div>
+  <div style="height:8px"></div>
+  <h5>Tower Type</h5>
+  <div class="leg-row"><div class="leg-ring" style="border-color:#E74C3C"></div> Guyed</div>
+  <div class="leg-row"><div class="leg-ring" style="border-color:#F39C12"></div> Rooftop</div>
+  <div class="leg-ring" style="display:none"></div>
+  <div class="leg-row"><div class="leg-ring" style="border-color:#27AE60"></div> Self-Supporting</div>
+</div>
+
+<!-- DISASTER ALERT BANNER -->
+<div id="alert-banner">
+  <span>⚠️</span>
+  <span id="alert-text">DISASTER MODE ACTIVE</span>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// SITE DATA — Replace with real FTAP data
+// Fields: id, name, lat, lng, region, island(bool),
+//   tower_type: 'guyed'|'self_supporting'|'rooftop'|'monopole'
+//   retrofitted(bool), fuel_pct(0-100), flood_zone(bool),
+//   access: 'road'|'boat'|'helicopter',
+//   vendors: { om, om_backup, structural, fuel },
+//   contacts: { om, fuel },
+//   notes: string
+// Risk is computed per disaster type automatically.
+// ══════════════════════════════════════════════════════════════
+const SITES = [
+  // LUZON — NCR
+  { id:"NCR-001", name:"QC Main Hub", lat:14.676, lng:121.043, region:"NCR", island:false, tower_type:"rooftop", retrofitted:false, fuel_pct:80, flood_zone:false, access:"road", vendors:{om:"Fiberhome",om_backup:"NEC Philippines",structural:"DCCD Engineering",fuel:"Petron Commercial"}, contacts:{om:"09171234567",fuel:"09281234567"}, notes:"Roof load limit — max 2 add'l antennas. Access via building admin." },
+  { id:"NCR-002", name:"Makati CBD", lat:14.554, lng:121.023, region:"NCR", island:false, tower_type:"rooftop", retrofitted:true, fuel_pct:45, flood_zone:false, access:"road", vendors:{om:"Fiberhome",om_backup:"Datamesh",structural:"DCCD Engineering",fuel:"Shell Commercial"}, contacts:{om:"09171234568",fuel:"09281234568"}, notes:"" },
+  { id:"NCR-003", name:"Pasig Junction", lat:14.587, lng:121.069, region:"NCR", island:false, tower_type:"self_supporting", retrofitted:true, fuel_pct:72, flood_zone:true, access:"road", vendors:{om:"Fiberhome",om_backup:"NEC Philippines",structural:"DCCD Engineering",fuel:"Petron Commercial"}, contacts:{om:"09171234569",fuel:"09281234569"}, notes:"Flood zone — low-lying area near Pasig River. Pre-position pump." },
+
+  // LUZON — NORTH
+  { id:"CAR-001", name:"Baguio North",  lat:16.412, lng:120.593, region:"CAR", island:false, tower_type:"guyed", retrofitted:false, fuel_pct:60, flood_zone:false, access:"road", vendors:{om:"Fiberhome",om_backup:null,structural:"Geodyne Inc",fuel:"Unioil Regional"}, contacts:{om:"09181234567",fuel:"09291234567"}, notes:"Mountain access road may be blocked post-earthquake. Nearest backup vendor 120km." },
+  { id:"CAR-002", name:"Sagada Relay",  lat:17.083, lng:120.903, region:"CAR", island:false, tower_type:"guyed", retrofitted:false, fuel_pct:35, flood_zone:false, access:"road", vendors:{om:"Fiberhome",om_backup:null,structural:"Geodyne Inc",fuel:"Local Dealer"}, contacts:{om:"09181234568",fuel:"09291234568"}, notes:"Remote — road access only via single mountain road. Fuel critical." },
+  { id:"R01-001", name:"Vigan Tower",   lat:17.574, lng:120.387, region:"Region I", island:false, tower_type:"self_supporting", retrofitted:false, fuel_pct:65, flood_zone:false, access:"road", vendors:{om:"Fiberhome",om_backup:"NEC Philippines",structural:"DCCD Engineering",fuel:"Petron Commercial"}, contacts:{om:"09171234570",fuel:"09281234570"}, notes:"" },
+  { id:"R02-001", name:"Tuguegarao Hub",lat:17.613, lng:121.730, region:"Region II", island:false, tower_type:"self_supporting", retrofitted:true, fuel_pct:78, flood_zone:true, access:"road", vendors:{om:"Fiberhome",om_backup:"Datamesh",structural:"DCCD Engineering",fuel:"Shell Commercial"}, contacts:{om:"09171234571",fuel:"09281234571"}, notes:"Cagayan River flood zone. High typhoon exposure — Cagayan corridor." },
+  { id:"R03-001", name:"Baler Relay",   lat:15.760, lng:121.560, region:"Region III", island:false, tower_type:"guyed", retrofitted:false, fuel_pct:50, flood_zone:true, access:"road", vendors:{om:"Fiberhome",om_backup:null,structural:"Geodyne Inc",fuel:"Seaoil Regional"}, contacts:{om:"09181234569",fuel:"09291234569"}, notes:"Pacific-facing. Historically first hit by typhoons entering Luzon." },
+
+  // LUZON — SOUTH
+  { id:"R04A-001", name:"Batangas Port",    lat:13.756, lng:121.058, region:"Region IV-A", island:false, tower_type:"self_supporting", retrofitted:true, fuel_pct:82, flood_zone:false, access:"road", vendors:{om:"Fiberhome",om_backup:"NEC Philippines",structural:"DCCD Engineering",fuel:"Petron Commercial"}, contacts:{om:"09171234572",fuel:"09281234572"}, notes:"Taal Volcano proximity — PHIVOLCS Alert Level 2 protocol active." },
+  { id:"R04B-001", name:"Palawan Main",     lat:9.833,  lng:118.737, region:"MIMAROPA", island:true,  tower_type:"self_supporting", retrofitted:false, fuel_pct:40, flood_zone:false, access:"boat", vendors:{om:"Fiberhome",om_backup:null,structural:"Geodyne Inc",fuel:"Local Dealer"}, contacts:{om:"09191234567",fuel:"09391234567"}, notes:"Island supply — boat access only. Fuel must be pre-positioned pre-typhoon." },
+  { id:"R05-001", name:"Legazpi Bicol",     lat:13.139, lng:123.734, region:"Region V",  island:false, tower_type:"guyed", retrofitted:false, fuel_pct:55, flood_zone:true, access:"road", vendors:{om:"Fiberhome",om_backup:"Datamesh",structural:"DCCD Engineering",fuel:"Shell Commercial"}, contacts:{om:"09171234573",fuel:"09281234573"}, notes:"Mayon Volcano hazard zone. High typhoon landfall frequency — Bicol corridor." },
+
+  // VISAYAS
+  { id:"R06-001", name:"Iloilo Central",    lat:10.720, lng:122.562, region:"Region VI", island:false, tower_type:"self_supporting", retrofitted:true, fuel_pct:74, flood_zone:false, access:"road", vendors:{om:"Fiberhome",om_backup:"NEC Philippines",structural:"DCCD Engineering",fuel:"Petron Commercial"}, contacts:{om:"09171234574",fuel:"09281234574"}, notes:"" },
+  { id:"R07-001", name:"Cebu North Hub",    lat:10.717, lng:122.983, region:"Region VII",island:false, tower_type:"rooftop", retrofitted:false, fuel_pct:68, flood_zone:false, access:"road", vendors:{om:"Fiberhome",om_backup:"Datamesh",structural:"DCCD Engineering",fuel:"Shell Commercial"}, contacts:{om:"09171234575",fuel:"09281234575"}, notes:"Cebu is on West Philippine fault system — high seismic risk (M6.9 in Sep 2025)." },
+  { id:"R08-001", name:"Tacloban East",     lat:11.244, lng:125.004, region:"Region VIII",island:false, tower_type:"guyed", retrofitted:false, fuel_pct:48, flood_zone:true, access:"road", vendors:{om:"Fiberhome",om_backup:null,structural:"Geodyne Inc",fuel:"Seaoil Regional"}, contacts:{om:"09181234570",fuel:"09291234570"}, notes:"Yolanda (2013) ground zero. Storm surge area. Historically worst typhoon damage." },
+  { id:"R08-002", name:"Eastern Samar",     lat:11.551, lng:125.489, region:"Region VIII",island:false, tower_type:"guyed", retrofitted:false, fuel_pct:30, flood_zone:true, access:"road", vendors:{om:"Fiberhome",om_backup:null,structural:"Geodyne Inc",fuel:"Local Dealer"}, contacts:{om:"09181234571",fuel:"09291234571"}, notes:"Most exposed to Pacific typhoon entry. Fuel critically low." },
+
+  // MINDANAO
+  { id:"R09-001", name:"Zamboanga Hub",     lat:6.921,  lng:122.078, region:"Region IX", island:false, tower_type:"self_supporting", retrofitted:false, fuel_pct:62, flood_zone:false, access:"road", vendors:{om:"Fiberhome",om_backup:"Datamesh",structural:"DCCD Engineering",fuel:"Petron Commercial"}, contacts:{om:"09171234576",fuel:"09281234576"}, notes:"Conflict-risk area. Personnel clearance required before site visit." },
+  { id:"R10-001", name:"Cagayan de Oro",    lat:8.479,  lng:124.652, region:"Region X",  island:false, tower_type:"self_supporting", retrofitted:true, fuel_pct:76, flood_zone:true, access:"road", vendors:{om:"Fiberhome",om_backup:"NEC Philippines",structural:"DCCD Engineering",fuel:"Shell Commercial"}, contacts:{om:"09171234577",fuel:"09281234577"}, notes:"Sendong (2011) flash flood history." },
+  { id:"R11-001", name:"Davao City Hub",    lat:7.073,  lng:125.612, region:"Region XI", island:false, tower_type:"self_supporting", retrofitted:true, fuel_pct:83, flood_zone:false, access:"road", vendors:{om:"Fiberhome",om_backup:"NEC Philippines",structural:"DCCD Engineering",fuel:"Petron Commercial"}, contacts:{om:"09171234578",fuel:"09281234578"}, notes:"FTAP regional HQ Mindanao." },
+  { id:"R12-001", name:"General Santos",    lat:6.112,  lng:125.172, region:"Region XII",island:false, tower_type:"guyed", retrofitted:false, fuel_pct:58, flood_zone:false, access:"road", vendors:{om:"Fiberhome",om_backup:null,structural:"Geodyne Inc",fuel:"Seaoil Regional"}, contacts:{om:"09181234572",fuel:"09291234572"}, notes:"" },
+  { id:"BARMM-001", name:"Cotabato Tower",  lat:7.223,  lng:124.247, region:"BARMM",     island:false, tower_type:"guyed", retrofitted:false, fuel_pct:42, flood_zone:true, access:"road", vendors:{om:"Fiberhome",om_backup:null,structural:"Geodyne Inc",fuel:"Local Dealer"}, contacts:{om:"09191234568",fuel:"09391234568"}, notes:"Conflict zone — AFP clearance required. Cotabato fault system (M6.6, 2019)." },
+  { id:"R13-001", name:"Davao de Oro",      lat:7.801,  lng:126.114, region:"Region XIII",island:false, tower_type:"guyed", retrofitted:false, fuel_pct:38, flood_zone:false, access:"helicopter", vendors:{om:"Fiberhome",om_backup:null,structural:"Geodyne Inc",fuel:"Local Dealer"}, contacts:{om:"09191234569",fuel:"09391234569"}, notes:"Helicopter-access only. Remote mining area. Fuel pre-positioning critical." },
+];
+
+// ══════════════════════════════════════════════════════════════
+// RISK CALCULATION ENGINE
+// Each disaster type returns risk level L1/L2/L3 and reasons
+// ══════════════════════════════════════════════════════════════
+function calcRisk(site, disaster) {
+  let score = 0;
+  let reasons = [];
+
+  if (disaster === 'earthquake' || disaster === 'all') {
+    if (site.tower_type === 'guyed')       { score += 3; reasons.push({t:'high', r:'Guyed tower — guy wire anchor failure risk'}); }
+    if (site.tower_type === 'rooftop')     { score += 2; reasons.push({t:'med',  r:'Rooftop — building structural dependency'}); }
+    if (!site.retrofitted)                 { score += 2; reasons.push({t:'med',  r:'Not seismically retrofitted'}); }
+    if (site.region === 'BARMM' || site.id==='R07-001') { score += 2; reasons.push({t:'high', r:'High seismic zone (documented M6.5+ events)'}); }
+    if (site.access === 'helicopter' || site.access === 'boat') { score += 2; reasons.push({t:'high', r:'Remote access — post-quake isolation risk'}); }
+    if (!site.vendors.om_backup)           { score += 1; reasons.push({t:'med',  r:'No backup O&M vendor'}); }
+  }
+  if (disaster === 'typhoon' || disaster === 'all') {
+    if (site.tower_type === 'guyed')       { score += 3; reasons.push({t:'high', r:'Guyed tower — vulnerable at 118+ kph winds'}); }
+    if (site.region === 'Region VIII' || site.region === 'Region V') { score += 3; reasons.push({t:'high', r:'High typhoon landfall corridor'}); }
+    if (site.island)                       { score += 3; reasons.push({t:'high', r:'Island site — cut off post-landfall'}); }
+    if (site.flood_zone)                   { score += 2; reasons.push({t:'med',  r:'Flood / storm surge zone'}); }
+    if (!site.retrofitted)                 { score += 1; reasons.push({t:'med',  r:'Not wind-load retrofitted'}); }
+    if (site.fuel_pct < 50)               { score += 2; reasons.push({t:'high', r:`Low fuel — ${site.fuel_pct}% only`}); }
+    if (!site.vendors.om_backup)           { score += 1; reasons.push({t:'med',  r:'No backup vendor for post-typhoon response'}); }
+  }
+  if (disaster === 'flood' || disaster === 'all') {
+    if (site.flood_zone)                   { score += 4; reasons.push({t:'high', r:'Confirmed PAGASA flood zone'}); }
+    if (site.tower_type === 'rooftop' && site.flood_zone) { score -= 1; } // rooftop less flood risk
+    if (site.island)                       { score += 2; reasons.push({t:'high', r:'Island — storm surge / coastal flood risk'}); }
+    if (site.region === 'Region VIII')     { score += 2; reasons.push({t:'high', r:'Yolanda storm surge zone'}); }
+  }
+  if (disaster === 'fuel' || disaster === 'all') {
+    if (site.fuel_pct < 40)               { score += 4; reasons.push({t:'high', r:`Critical fuel — ${site.fuel_pct}%`}); }
+    else if (site.fuel_pct < 60)          { score += 2; reasons.push({t:'med',  r:`Low fuel — ${site.fuel_pct}%`}); }
+    if (site.access === 'helicopter')      { score += 3; reasons.push({t:'high', r:'Helicopter-only — fuel delivery impossible in crisis'}); }
+    if (site.access === 'boat')            { score += 2; reasons.push({t:'high', r:'Boat-only — fuel delivery vulnerable to weather'}); }
+    if (site.vendors.fuel === 'Local Dealer') { score += 2; reasons.push({t:'med', r:'Fuel vendor = local dealer, no formal SLA'}); }
+  }
+
+  // Deduplicate reasons
+  const seen = new Set();
+  reasons = reasons.filter(r => { if (seen.has(r.r)) return false; seen.add(r.r); return true; });
+
+  const level = score >= 7 ? 'L3' : score >= 4 ? 'L2' : 'L1';
+  return { level, score, reasons };
+}
+
+// ══════════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════════
+let currentDisaster = 'all';
+let activeLevels = new Set(['L1','L2','L3']);
+let activeRisks  = new Set();
+let markers = {};
+let selectedSite = null;
+
+// ══════════════════════════════════════════════════════════════
+// MAP INIT
+// ══════════════════════════════════════════════════════════════
+const map = L.map('map', {
+  center: [12.0, 122.5],
+  zoom: 6,
+  zoomControl: true,
+});
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap contributors',
+  maxZoom: 18,
+}).addTo(map);
+
+const LEVEL_COLOR = { L1:'#27AE60', L2:'#F39C12', L3:'#E74C3C' };
+const TOWER_RING  = { guyed:'#E74C3C', rooftop:'#F39C12', self_supporting:'#27AE60', monopole:'#00C2E0' };
+
+function makeIcon(site, risk) {
+  const col  = LEVEL_COLOR[risk.level];
+  const ring = TOWER_RING[site.tower_type] || '#888';
+  const pulse = risk.level === 'L3' ? `
+    <circle cx="16" cy="16" r="14" fill="none" stroke="${col}" stroke-width="1.5" opacity="0.4">
+      <animate attributeName="r" values="14;22;14" dur="2.5s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.4;0;0.4" dur="2.5s" repeatCount="indefinite"/>
+    </circle>` : '';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+    ${pulse}
+    <circle cx="16" cy="16" r="9" fill="${col}" stroke="${ring}" stroke-width="2.5"/>
+    <circle cx="16" cy="16" r="4" fill="white" opacity="0.9"/>
+  </svg>`;
+  return L.divIcon({
+    html: svg, className: 'custom-marker',
+    iconSize: [32,32], iconAnchor: [16,16], popupAnchor: [0,-18]
+  });
+}
+
+function createMarkers() {
+  Object.values(markers).forEach(m => m.remove());
+  markers = {};
+  SITES.forEach(site => {
+    const risk = calcRisk(site, currentDisaster);
+    const marker = L.marker([site.lat, site.lng], { icon: makeIcon(site, risk) });
+    marker.on('click', () => openDetail(site));
+    marker.addTo(map);
+    markers[site.id] = { marker, risk };
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+// FILTERS
+// ══════════════════════════════════════════════════════════════
+function setDisaster(d) {
+  currentDisaster = d;
+  document.querySelectorAll('.dtab').forEach(t => t.classList.remove('active'));
+  document.querySelector(`.dtab.${d}`).classList.add('active');
+  const labels = { earthquake:'⚠️ EARTHQUAKE RISK MODE ACTIVE', typhoon:'⚠️ TYPHOON RISK MODE ACTIVE', flood:'⚠️ FLOOD RISK MODE ACTIVE', fuel:'⚠️ FUEL CRISIS MODE ACTIVE' };
+  const banner = document.getElementById('alert-banner');
+  if (d === 'all') { banner.classList.remove('show'); }
+  else { document.getElementById('alert-text').textContent = labels[d]; banner.classList.add('show'); }
+  refreshAll();
+}
+
+function toggleLevel(l) {
+  if (activeLevels.has(l)) { if (activeLevels.size > 1) activeLevels.delete(l); }
+  else activeLevels.add(l);
+  ['L1','L2','L3'].forEach(lv => {
+    const btn = document.getElementById(`btn-${lv}`);
+    btn.className = 'lvl-btn' + (activeLevels.has(lv) ? ` active-${lv}` : '');
+  });
+  refreshAll();
+}
+
+function toggleRisk(r) {
+  const el = document.querySelector(`.rfactor[onclick="toggleRisk('${r}')"]`);
+  if (activeRisks.has(r)) { activeRisks.delete(r); el.classList.remove('active'); }
+  else { activeRisks.add(r); el.classList.add('active'); }
+  refreshAll();
+}
+
+function matchesRiskFilters(site) {
+  if (activeRisks.size === 0) return true;
+  for (const r of activeRisks) {
+    if (r === 'guyed'            && site.tower_type === 'guyed')    return true;
+    if (r === 'rooftop'          && site.tower_type === 'rooftop')  return true;
+    if (r === 'not_retrofitted'  && !site.retrofitted)              return true;
+    if (r === 'island'           && site.island)                    return true;
+    if (r === 'low_fuel'         && site.fuel_pct < 50)             return true;
+    if (r === 'flood_zone'       && site.flood_zone)                return true;
+    if (r === 'no_backup_vendor' && !site.vendors.om_backup)        return true;
+  }
+  return false;
+}
+
+function refreshAll() {
+  Object.values(markers).forEach(m => m.marker.remove());
+  markers = {};
+  const list = document.getElementById('site-list');
+  list.innerHTML = '';
+  let counts = { L1:0, L2:0, L3:0 };
+  let visible = 0;
+
+  SITES.forEach(site => {
+    const risk = calcRisk(site, currentDisaster);
+    counts[risk.level]++;
+    const show = activeLevels.has(risk.level) && matchesRiskFilters(site);
+    if (!show) return;
+    visible++;
+    // Marker
+    const marker = L.marker([site.lat, site.lng], { icon: makeIcon(site, risk) });
+    marker.on('click', () => openDetail(site));
+    marker.addTo(map);
+    markers[site.id] = { marker, risk };
+    // List item
+    const div = document.createElement('div');
+    div.className = 'site-item' + (selectedSite?.id === site.id ? ' selected' : '');
+    div.id = `list-${site.id}`;
+    div.onclick = () => { openDetail(site); map.flyTo([site.lat, site.lng], 10, { duration: 1 }); };
+    const lvlLabel = { L1:'LOW', L2:'MED', L3:'HIGH' }[risk.level];
+    const lvlBg    = { L1:'rgba(39,174,96,0.2)', L2:'rgba(243,156,18,0.2)', L3:'rgba(231,76,60,0.2)' }[risk.level];
+    const lvlCol   = LEVEL_COLOR[risk.level];
+    const accIcon  = { road:'🚗', boat:'⛵', helicopter:'🚁' }[site.access];
+    div.innerHTML = `
+      <div class="site-dot" style="background:${LEVEL_COLOR[risk.level]}"></div>
+      <div class="site-info">
+        <div class="site-name">${site.name}</div>
+        <div class="site-sub">${site.region} · ${site.tower_type.replace('_',' ')} · ${accIcon}</div>
+      </div>
+      <div class="site-risk-badge" style="background:${lvlBg};color:${lvlCol}">${lvlLabel}</div>`;
+    list.appendChild(div);
+  });
+
+  document.getElementById('site-count').textContent = `(${visible})`;
+  document.getElementById('stat-total').textContent = SITES.length;
+  document.getElementById('stat-L3').textContent = counts.L3;
+  document.getElementById('stat-L2').textContent = counts.L2;
+  document.getElementById('stat-L1').textContent = counts.L1;
+}
+
+// ══════════════════════════════════════════════════════════════
+// DETAIL PANEL
+// ══════════════════════════════════════════════════════════════
+function openDetail(site) {
+  selectedSite = site;
+  const risk = calcRisk(site, currentDisaster);
+  const lvlColor = LEVEL_COLOR[risk.level];
+  const lvlLabel = { L1:'LEVEL 1 — LOW RISK', L2:'LEVEL 2 — MODERATE', L3:'LEVEL 3 — HIGH RISK' }[risk.level];
+  const lvlBg    = { L1:'rgba(39,174,96,0.12)', L2:'rgba(243,156,18,0.12)', L3:'rgba(231,76,60,0.12)' }[risk.level];
+  const accIcon  = { road:'🚗 Road', boat:'⛵ Boat only', helicopter:'🚁 Helicopter only' }[site.access];
+  const fuelBar  = `<div style="background:rgba(255,255,255,0.1);border-radius:4px;height:6px;margin-top:4px">
+    <div style="background:${site.fuel_pct<40?'#E74C3C':site.fuel_pct<60?'#F39C12':'#27AE60'};width:${site.fuel_pct}%;height:100%;border-radius:4px"></div></div>`;
+
+  const pillsHtml = risk.reasons.slice(0,5).map(r =>
+    `<span class="risk-pill ${r.t}">${r.r}</span>`).join('');
+
+  const disasterLabel = { all:'All Hazards', earthquake:'Earthquake', typhoon:'Typhoon', flood:'Flood', fuel:'Fuel Crisis' }[currentDisaster];
+  const mapsLink = `https://www.google.com/maps?q=${site.lat},${site.lng}`;
+
+  document.getElementById('detail-content').innerHTML = `
+    <div class="detail-header-name">${site.name}</div>
+    <div class="detail-header-sub">${site.id} · ${site.region}</div>
+
+    <div class="risk-banner" style="background:${lvlBg};border:1px solid ${lvlColor}33">
+      <div class="risk-level" style="color:${lvlColor}">${risk.level}</div>
+      <div class="risk-label"><strong style="color:${lvlColor}">${lvlLabel}</strong>${disasterLabel} risk score: ${risk.score}</div>
+    </div>
+
+    <div class="detail-section">
+      <h4>Risk Factors</h4>
+      <div class="risk-pills">${pillsHtml || '<span style="color:var(--muted);font-size:11px">No significant risk factors identified</span>'}</div>
+    </div>
+
+    <div class="detail-section">
+      <h4>Site Specifications</h4>
+      <div class="detail-row"><span class="dk">Tower Type</span><span class="dv">${site.tower_type.replace(/_/g,' ').toUpperCase()}</span></div>
+      <div class="detail-row"><span class="dk">Retrofitted</span><span class="dv" style="color:${site.retrofitted?'#27AE60':'#E74C3C'}">${site.retrofitted?'✓ Yes':'✗ No'}</span></div>
+      <div class="detail-row"><span class="dk">Island Site</span><span class="dv">${site.island?'Yes':'No'}</span></div>
+      <div class="detail-row"><span class="dk">Flood Zone</span><span class="dv" style="color:${site.flood_zone?'#E74C3C':'#27AE60'}">${site.flood_zone?'⚠ Yes':'No'}</span></div>
+      <div class="detail-row"><span class="dk">Access</span><span class="dv">${accIcon}</span></div>
+      <div class="detail-row"><span class="dk">Fuel Level</span><span class="dv">${site.fuel_pct}%${fuelBar}</span></div>
+    </div>
+
+    <div class="detail-section">
+      <h4>Vendors & Contacts</h4>
+      <div class="detail-row"><span class="dk">O&M (Primary)</span><span class="dv">${site.vendors.om}<br><span class="mono">${site.contacts.om}</span></span></div>
+      <div class="detail-row"><span class="dk">O&M (Backup)</span><span class="dv" style="color:${site.vendors.om_backup?'var(--text)':'#E74C3C'}">${site.vendors.om_backup||'⚠ NONE'}</span></div>
+      <div class="detail-row"><span class="dk">Structural</span><span class="dv">${site.vendors.structural}</span></div>
+      <div class="detail-row"><span class="dk">Fuel Vendor</span><span class="dv">${site.vendors.fuel}<br><span class="mono">${site.contacts.fuel}</span></span></div>
+    </div>
+
+    ${site.notes ? `<div class="detail-section">
+      <h4>Operational Notes</h4>
+      <div style="font-size:11px;color:var(--muted);line-height:1.6;padding:6px 0">${site.notes}</div>
+    </div>` : ''}
+
+    <div class="detail-section">
+      <h4>Actions</h4>
+      <button class="action-btn primary" onclick="window.open('${mapsLink}','_blank')">📍 Open in Google Maps</button>
+      <button class="action-btn secondary" onclick="callContact('${site.contacts.om}')">📞 Call O&M: ${site.contacts.om}</button>
+      <button class="action-btn secondary" onclick="callContact('${site.contacts.fuel}')">⛽ Call Fuel Vendor: ${site.contacts.fuel}</button>
+    </div>
+  `;
+
+  document.getElementById('detail-panel').classList.add('open');
+  document.querySelectorAll('.site-item').forEach(el => el.classList.remove('selected'));
+  const listItem = document.getElementById(`list-${site.id}`);
+  if (listItem) { listItem.classList.add('selected'); listItem.scrollIntoView({ block:'nearest' }); }
+}
+
+function closeDetail() {
+  document.getElementById('detail-panel').classList.remove('open');
+  selectedSite = null;
+  document.querySelectorAll('.site-item').forEach(el => el.classList.remove('selected'));
+}
+
+function callContact(num) {
+  window.location.href = `tel:${num}`;
+}
+
+// ── INIT ──────────────────────────────────────────────────────
+refreshAll();
+</script>
+</body>
+</html>
